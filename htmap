@@ -1,0 +1,920 @@
+#ifndef __KST_HTMAP__
+#define __KST_HTMAP__
+
+/*
+Author: Konstantin Stupnik konstantin.stupnik@gmail.com
+ */
+
+#include <stdint.h>
+#include <memory.h>
+#include <string>
+#include <stdexcept>
+#include <map>
+#include <memory>
+#include <functional>
+#include <utility>
+#include <new>
+
+namespace kst{
+
+
+
+template <class Key,class T,class Hash=std::hash<Key>,class KeyEqual=std::equal_to<Key>,class Allocator=std::allocator<std::pair<const Key,T> > >
+class htmap{
+protected:
+  struct Node;
+  struct DataNode;
+  struct DataNodeList;
+  typedef std::pair<Key,T> nc_value_type;
+public:
+
+  typedef std::pair<const Key,T> value_type;
+
+  explicit htmap(const Hash& a_hashFunc=Hash()):
+           m_root(0),m_count(0),m_hashFunc(a_hashFunc),m_begin((DataNode*)&m_end)
+  {
+    m_end.m_prev=0;
+    m_end.m_next=0;
+  }
+
+
+  htmap(const htmap& a_other):m_root(0),m_count(0),m_hashFunc(a_other.m_hashFunc),m_begin((DataNode*)&m_end)
+  {
+    for(const_iterator it=a_other.begin(),end=a_other.end();it!=end;++it)
+    {
+      insert(*it);
+    }
+  }
+
+  htmap& operator=(const htmap& a_other)
+  {
+    if(this==&a_other)
+    {
+      return *this;
+    }
+    clear();
+    for(const_iterator it=a_other.begin(),end=a_other.end();it!=end;++it)
+    {
+      insert(*it);
+    }
+    return *this;
+  }
+
+  template <class Hash2,class KeyEqual2,class NodesAllocator2>
+  htmap& operator=(const htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>& a_other)
+  {
+    clear();
+    for(typename htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>::const_iterator it=a_other.begin(),end=a_other.end();it!=end;++it)
+    {
+      insert(*it);
+    }
+    return *this;
+  }
+
+  bool operator==(const htmap& a_other)const
+  {
+    if(this==&a_other)
+    {
+      return true;
+    }
+    const_iterator it1=begin(),end1=end(),it2=a_other.begin(),end2=a_other.end();
+    for(;;++it1,++it2)
+    {
+      if(it1==end1)
+      {
+        return it2==end2?true:false;
+      }
+      if(it2==end2)
+      {
+        return false;
+      }
+      if(!m_keyEq(it1->first,it2->first) || it1->second!=it2->second)
+      {
+        return false;
+      }
+    }
+    //return false;
+  }
+  template <class Hash2,class KeyEqual2,class NodesAllocator2>
+  bool operator==(const htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>& a_other)const
+  {
+    const_iterator it1=begin(),end1=end();
+    typename htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>::const_iterator it2=a_other.begin(),end2=a_other.end();
+    for(;;++it1,++it2)
+    {
+      if(it1==end1)
+      {
+        return it2==end2?true:false;
+      }
+      if(it2==end2)
+      {
+        return false;
+      }
+      if(!m_keyEq(it1->m_key,it2->m_key) || !m_keyEq(it1->m_value,it2->m_value))
+      {
+        return false;
+      }
+    }
+    //return false;
+  }
+
+  bool operator!=(const htmap& a_other)const
+       {
+    return !operator==(a_other);
+       }
+
+  template <class Hash2,class KeyEqual2,class NodesAllocator2>
+  bool operator!=(const htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>& a_other)const
+  {
+    return !operator==(a_other);
+  }
+
+
+  ~htmap()
+  {
+    clear();
+  }
+
+  class iterator{
+  public:
+    iterator():m_node(0){}
+    iterator(const iterator& a_other):m_node(a_other.m_node){}
+    iterator operator++(int)
+          {
+      m_node=m_node->m_next;
+      return *this;
+          }
+
+    iterator operator++()
+          {
+      DataNode* rv=m_node;
+      m_node=m_node->m_next;
+      return iterator(rv);
+          }
+
+    iterator operator--(int)
+          {
+      m_node=m_node->m_prev;
+      return *this;
+          }
+
+    iterator operator--()
+          {
+      DataNode* rv=m_node;
+      m_node=m_node->m_prev;
+      return iterator(rv);
+          }
+
+    iterator& operator=(const iterator& a_other)
+    {
+      m_node=a_other.m_node;
+      return *this;
+    }
+
+    bool operator==(const iterator& a_other)const
+          {
+      return m_node==a_other.m_node;
+          }
+
+    bool operator!=(const iterator& a_other)const
+          {
+      return m_node!=a_other.m_node;
+          }
+
+    value_type& operator*()
+    {
+      return m_node->m_value;
+    }
+    value_type* operator->()
+    {
+      return &m_node->m_value;
+    }
+    const value_type& operator*()const
+    {
+      return m_node->m_value;
+    }
+    const value_type* operator->()const
+    {
+      return &m_node->m_value;
+    }
+  protected:
+    iterator(DataNode* a_node):m_node(a_node){}
+    friend class htmap;
+    typename htmap::DataNode* m_node;
+    friend class const_iterator;
+  };
+
+  class const_iterator{
+  public:
+    const_iterator():m_node(0){}
+    const_iterator(const const_iterator& a_other):m_node(a_other.m_node){}
+    const_iterator(const iterator& a_other):m_node(a_other.m_node){}
+    const_iterator operator++(int)
+    {
+      m_node=m_node->m_next;
+      return *this;
+    }
+
+    const_iterator operator++()
+    {
+      const DataNode* rv=m_node;
+      m_node=m_node->m_next;
+      return const_iterator(rv);
+    }
+
+    const_iterator operator--(int)
+    {
+      m_node=m_node->m_prev;
+      return *this;
+    }
+
+    const_iterator operator--()
+    {
+      const DataNode* rv=m_node;
+      m_node=m_node->m_prev;
+      return const_iterator(rv);
+    }
+
+    const_iterator& operator=(const const_iterator& a_other)
+    {
+      m_node=a_other.m_node;
+      return *this;
+    }
+
+    bool operator==(const const_iterator& a_other)const
+    {
+      return m_node==a_other.m_node;
+    }
+
+    bool operator!=(const const_iterator& a_other)const
+    {
+      return m_node!=a_other.m_node;
+    }
+
+    const value_type& operator*()const
+    {
+      return m_node->m_value;
+    }
+    const value_type* operator->()const
+    {
+      return &m_node->m_value;
+    }
+  protected:
+    const_iterator(const DataNode* a_node):m_node(a_node){}
+    friend class htmap;
+    const typename htmap::DataNode* m_node;
+  };
+
+
+  iterator begin()
+  {
+    return iterator(m_begin);
+  }
+
+  iterator end()
+  {
+    return iterator((DataNode*)&m_end);
+  }
+
+  const_iterator begin()const
+  {
+    return const_iterator(m_begin);
+  }
+
+  const_iterator end()const
+  {
+    return const_iterator((const DataNode*)&m_end);
+  }
+
+  iterator insert(const Key& a_key,const T& a_value)
+  {
+    return insert(nc_value_type(a_key,a_value),true);
+  }
+
+  T& operator[](const Key& a_key)
+  {
+    iterator it=insert(nc_value_type(a_key,T()),false);
+    return it->second;
+  }
+
+  const T& operator[](const Key& a_key)const
+  {
+    iterator it=find(a_key);
+    if(it==end())
+    {
+      throw std::runtime_error("const htmap::operator[] on non existent key");
+    }
+    return it->second;
+  }
+
+  iterator insert(const value_type& a_keyval)
+  {
+    return insert(a_keyval,true);
+  }
+
+  template <class VP>
+  iterator insert(VP&& a_keyval)
+  {
+    return insert(std::forward<nc_value_type>(a_keyval),true);
+  }
+
+  /*
+  template <class InputIterator>
+  void insert(InputIterator it,InputIterator end)
+  {
+    for(;it!=end;++it)
+    {
+      insert(*it);
+    }
+  }
+  */
+
+  iterator find(const Key& a_key)
+  {
+    if(!m_root)
+    {
+      return end();
+    }
+    uint32_t hashCode=m_hashFunc(a_key);
+    Node* ptr=m_root;
+    while(ptr)
+    {
+      if(ptr->m_nodeType==ntInnerNode)
+      {
+        ptr=ptr->m_ch[hashCode&3];
+        hashCode>>=2;
+        continue;
+      }
+      if(ptr->m_nodeType==ntListNode)
+      {
+        DataNodeList* lst=ptr->asListPtr();
+        while(lst)
+        {
+          if(m_keyEq(lst->m_dataNode->m_value.first,a_key))
+          {
+            return iterator(lst->m_dataNode);
+          }
+          lst=lst->m_listNext;
+        }
+        return end();
+      }
+      if(m_keyEq(ptr->asData().m_value.first,a_key))
+      {
+        return iterator(ptr->asDataPtr());
+      }
+      return end();
+    }
+    return end();
+  }
+
+  const_iterator find(const Key& a_key)const
+  {
+    if(!m_root)
+    {
+      return end();
+    }
+    uint32_t hashCode=m_hashFunc(a_key);
+    Node* ptr=m_root;
+    while(ptr)
+    {
+      if(ptr->m_nodeType==ntInnerNode)
+      {
+        ptr=ptr->m_ch[hashCode&3];
+        hashCode>>=2;
+        continue;
+      }
+      if(ptr->m_nodeType==ntListNode)
+      {
+        DataNodeList* lst=ptr->asListPtr();
+        while(lst)
+        {
+          if(m_keyEq(lst->m_dataNode->m_value.first,a_key))
+          {
+            return iterator(lst->m_dataNode);
+          }
+          lst=lst->m_listNext;
+        }
+        return end();
+      }
+      if(m_keyEq(ptr->asData().m_value.first,a_key))
+      {
+        return const_iterator(ptr->asDataPtr());
+      }
+      return end();
+    }
+    return end();
+  }
+
+
+  bool find(const Key& a_key,T& a_valueRef)
+  {
+    iterator it=find(a_key);
+    if(it!=end())
+    {
+      a_valueRef=it->second;
+      return true;
+    }
+    return false;
+  }
+
+  void erase(const Key& a_key)
+  {
+    if(!m_root)
+    {
+      return;
+    }
+    uint32_t hashCode=m_hashFunc(a_key);
+    Node* ptr=m_root;
+    Node* path[16];
+    unsigned char pathIdx[16];
+    size_t pathCount=0;
+    bool floatUp=false;
+    while(ptr)
+    {
+      unsigned char idx=hashCode&3;
+      if(ptr->m_nodeType==ntInnerNode)
+      {
+        path[pathCount]=ptr;
+        pathIdx[pathCount++]=idx;
+        ptr=ptr->m_ch[idx];
+        hashCode>>=2;
+        continue;
+      }
+      if(ptr->m_nodeType==ntListNode)
+      {
+        DataNodeList* lst=ptr->asListPtr();
+        DataNodeList* prev=nullptr;
+        bool found=false;
+        while(lst)
+        {
+          if(m_keyEq(lst->m_dataNode->m_value.first,a_key))
+          {
+            found=true;
+            DataNode* vptr=lst->m_dataNode;
+            if(vptr->m_prev)
+            {
+              vptr->m_prev->m_next=vptr->m_next;
+              vptr->m_next->m_prev=vptr->m_prev;
+            }else
+            {
+              m_begin=vptr->m_next;
+              m_begin->m_prev=0;
+            }
+            m_count--;
+            if(!prev)
+            {
+              if(lst->m_listNext->m_listNext)
+              {
+                path[pathCount-1]->m_ch[pathIdx[pathCount-1]]=(Node*)lst->m_listNext;
+                return;
+              }
+              path[pathCount-1]->m_ch[pathIdx[pathCount-1]]=(Node*)lst->m_listNext->m_dataNode;
+              lst->m_listNext->m_dataNode=0;
+              deallocListNode(lst->m_listNext);
+              deallocListNode(lst);
+              floatUp=true;
+              break;
+            }
+            if(prev!=ptr->asListPtr() || lst->m_listNext)
+            {
+              prev->m_listNext=lst->m_listNext;
+              deallocListNode(lst);
+              return;
+            }else
+            {
+              path[pathCount-1]->m_ch[pathIdx[pathCount-1]]=(Node*)prev->m_dataNode;
+              prev->m_dataNode=0;
+              deallocListNode(prev);
+              deallocListNode(lst);
+              floatUp=true;
+              break;
+            }
+          }
+          prev=lst;
+          lst=lst->m_listNext;
+        }
+        if(!found)
+        {
+          return;
+        }
+      }else
+      {
+        DataNode* dptr=ptr->asDataPtr();
+        if(!m_keyEq(dptr->m_value.first,a_key))
+        {
+          return;
+        }
+        if(dptr->m_prev)
+        {
+          dptr->m_prev->m_next=dptr->m_next;
+          dptr->m_next->m_prev=dptr->m_prev;
+        }else
+        {
+          m_begin=dptr->m_next;
+          m_begin->m_prev=0;
+        }
+        deallocDataNode(dptr);
+        m_count--;
+      }
+
+      if(floatUp)
+      {
+        Node* node=path[pathCount-1]->m_ch[pathIdx[pathCount-1]];
+        while(pathCount>0)
+        {
+          ptr=path[pathCount-1];
+          idx=pathIdx[pathCount-1];
+          ptr->m_ch[idx]=node;
+          if(ptr==m_root)
+          {
+            return;
+          }
+          for(size_t i=0;i<4;++i)
+          {
+            if(i==idx)
+            {
+              continue;
+            }
+            if(ptr->m_ch[i])
+            {
+              return;
+            }
+          }
+          m_nall.deallocate(ptr, 1);
+          pathCount--;
+        }
+      }
+      else
+      {
+        while(pathCount>0)
+        {
+          ptr=path[pathCount-1];
+          idx=pathIdx[pathCount-1];
+          ptr->m_ch[idx]=0;
+          if(ptr->m_ch[0] || ptr->m_ch[1] || ptr->m_ch[2] || ptr->m_ch[3])
+          {
+            return;
+          }
+          m_nall.deallocate(ptr, 1);
+          if(ptr == m_root)
+          {
+            m_root=0;
+          }
+          pathCount--;
+        }
+      }
+      return;
+    }
+  }
+
+  void erase(iterator a_it)
+  {
+    erase(a_it.m_node->m_value.first);
+  }
+
+  void erase(const_iterator a_it)
+  {
+    erase(a_it.m_node->m_value.first);
+  }
+
+  size_t size()const
+  {
+    return m_count;
+  }
+
+  bool empty()const
+  {
+    return !m_count;
+  }
+
+  void clear()
+  {
+    if(m_root)
+    {
+      recClear(m_root);
+    }
+    m_root=0;
+    m_count=0;
+    m_begin=(DataNode*)&m_end;
+    m_end.m_prev=0;
+    m_end.m_next=0;
+  }
+
+  void swap(htmap& a_other)
+  {
+    std::swap(m_root,a_other.m_root);
+    std::swap(m_count,a_other.m_count);
+    std::swap(m_begin,a_other.m_begin);
+
+    std::swap(m_hashFunc,a_other.m_hashFunc);
+    std::swap(m_keyEq,a_other.m_keyEq);
+
+    std::swap(m_nall,a_other.m_nall);
+    std::swap(m_dall,a_other.m_dall);
+    std::swap(m_lall,a_other.m_lall);
+
+    if(m_end.m_prev)
+    {
+      m_end.m_prev->m_next=(DataNode*)&a_other.m_end;
+    }
+    if(a_other.m_end.m_prev)
+    {
+      a_other.m_end.m_prev->m_next=(DataNode*)&m_end;
+    }
+    DataNode* tmpEnd=m_end.m_prev;
+    m_end.m_prev=a_other.m_end.m_prev;
+    a_other.m_end.m_prev=tmpEnd;
+  }
+
+protected:
+
+  iterator insert(nc_value_type&& a_value,bool overwrite)
+  {
+    uint32_t hashCode=m_hashFunc(a_value.first);
+    size_t bitIndex=0;
+    if(!m_root)
+    {
+      m_root=allocNode();
+    }
+    Node* ptr=m_root;
+    Node* parent=0;
+    unsigned char parentIdx=0;
+    unsigned char idx;
+    for(;;)
+    {
+      idx=hashCode&3;
+      if(ptr->m_nodeType==ntInnerNode)
+      {
+        if(ptr->m_ch[idx])
+        {
+          parent=ptr;
+          parentIdx=idx;
+          ptr=ptr->m_ch[idx];
+          hashCode>>=2;
+          bitIndex+=2;
+          continue;
+        }else
+        {
+          DataNode& n=*(DataNode*)(ptr->m_ch[idx]=(Node*)allocDataNode(std::forward<nc_value_type>(a_value)));
+          n.m_next=(DataNode*)&m_end;
+          n.m_prev=m_end.m_prev;
+          if(m_end.m_prev)
+          {
+            m_end.m_prev->m_next=&n;
+          }else
+          {
+            m_begin=&n;
+          }
+          m_end.m_prev=&n;
+          m_count++;
+          return iterator(&n);
+        }
+      }
+
+      if(ptr->m_nodeType==ntListNode)
+      {
+        DataNodeList* lst=ptr->asListPtr();
+        while(lst)
+        {
+          if(m_keyEq(lst->m_dataNode->m_value.first,a_value.first))
+          {
+            if(overwrite)
+            {
+              lst->m_dataNode->m_value.second=std::move(a_value.second);
+            }
+            return iterator(lst->m_dataNode);
+          }
+          lst=lst->m_listNext;
+        }
+        lst=ptr->asListPtr();
+        DataNodeList* next=allocListNode(allocDataNode(std::forward<nc_value_type>(a_value)));
+        next->m_listNext=lst->m_listNext;
+        lst->m_listNext=next;
+        DataNode& n=*next->m_dataNode;
+        n.m_next=(DataNode*)&m_end;
+        n.m_prev=m_end.m_prev;
+        if(m_end.m_prev)
+        {
+          m_end.m_prev->m_next=&n;
+        }else
+        {
+          m_begin=&n;
+        }
+        m_end.m_prev=&n;
+        m_count++;
+        return iterator(&n);
+      }else
+      {
+        DataNode* dptr=ptr->asDataPtr();
+        if(m_keyEq(dptr->m_value.first,a_value.first))
+        {
+          if(overwrite)
+          {
+            dptr->m_value.second=a_value.second;
+          }
+          return iterator(dptr);
+        }
+        if(bitIndex!=30)
+        {
+          uint32_t oldHashCode=m_hashFunc(dptr->m_value.first);
+          oldHashCode>>=bitIndex;
+          do
+          {
+            Node* newNode=parent->m_ch[parentIdx]=allocNode();
+            if((oldHashCode&3)!=idx)
+            {
+              newNode->m_ch[oldHashCode&3]=ptr;
+              ptr=newNode;
+              DataNode& n=*(DataNode*)(ptr->m_ch[idx]=(Node*)(dptr=allocDataNode(std::forward<nc_value_type>(a_value))));
+              n.m_next=(DataNode*)&m_end;
+              n.m_prev=m_end.m_prev;
+              if(m_end.m_prev)
+              {
+                m_end.m_prev->m_next=dptr;
+              }else
+              {
+                m_begin=dptr;
+              }
+              m_end.m_prev=dptr;
+              m_count++;
+              return iterator(dptr);
+            }
+            parent=newNode;
+            parentIdx=idx;
+            hashCode>>=2;
+            oldHashCode>>=2;
+            bitIndex+=2;
+            idx=hashCode&3;
+          }while(bitIndex<30);
+        }
+
+        DataNodeList* newNode=(DataNodeList*)(parent->m_ch[parentIdx]=(Node*)allocListNode(dptr));
+        newNode->m_listNext=allocListNode(allocDataNode(std::forward<nc_value_type>(a_value)));
+        DataNode& n=*newNode->m_listNext->m_dataNode;
+        n.m_next=(DataNode*)&m_end;
+        n.m_prev=m_end.m_prev;
+        if(m_end.m_prev)
+        {
+          m_end.m_prev->m_next=&n;
+        }else
+        {
+          m_begin=&n;
+        }
+        m_end.m_prev=&n;
+        m_count++;
+        return iterator(&n);
+      }
+    }
+    //return end();
+  }
+
+  friend class iterator;
+  friend class const_iterator;
+
+  static const intptr_t ntInnerNode=intptr_t(-1);//0xffffffff,
+  static const intptr_t ntListNode=intptr_t(-2);//0xfffffffe
+
+  struct DataNodeBase{
+    DataNode* m_prev;
+    DataNode* m_next;
+  };
+  struct DataNode:DataNodeBase{
+    union{
+      nc_value_type m_ncvalue;
+      value_type m_value;
+    };
+    ~DataNode()
+    {
+      m_value.~value_type();
+    }
+    DataNode()=default;
+    //DataNode(const value_type& a_value):m_value(a_value){}
+    DataNode(nc_value_type&& a_value):m_ncvalue(std::forward<nc_value_type>(a_value)){}
+    DataNode(const value_type& a_value):m_value(a_value)
+    {
+    }
+    DataNode(DataNode&& a_other):m_ncvalue(std::forward<nc_value_type>(a_other.m_ncvalue))
+    {
+      this->m_prev=a_other.m_prev;
+      this->m_next=a_other.m_next;
+    }
+    DataNode(const DataNode& a_other):m_ncvalue(a_other.m_ncvalue)
+    {
+      this->m_prev=a_other.m_prev;
+      this->m_next=a_other.m_next;
+    }
+  };
+
+  struct DataNodeList{
+    intptr_t m_nodeType;
+    DataNodeList* m_listNext;
+    DataNode* m_dataNode;
+    DataNodeList(DataNode* a_dataNode):m_nodeType(ntListNode),m_listNext(0),m_dataNode(a_dataNode){}
+  };
+
+
+  struct Node{
+    intptr_t m_nodeType;
+    Node* m_ch[4];
+    DataNode& asData()
+    {
+      return *(DataNode*)this;
+    }
+    DataNode* asDataPtr()
+    {
+      return (DataNode*)this;
+    }
+    DataNodeList* asListPtr()
+    {
+      return (DataNodeList*)this;
+    }
+  };
+
+  Node* m_root;
+  size_t m_count;
+  Hash m_hashFunc;
+  KeyEqual m_keyEq;
+  DataNodeBase m_end;
+  DataNode* m_begin;
+
+  typedef typename Allocator::template rebind<Node>::other NodeAllocator;
+  typedef typename Allocator::template rebind<DataNode>::other DataNodeAllocator;
+  typedef typename Allocator::template rebind<DataNodeList>::other DataNodeListAllocator;
+
+  NodeAllocator m_nall;
+  DataNodeAllocator m_dall;
+  DataNodeListAllocator m_lall;
+
+  Node* allocNode()
+  {
+    Node* rv=m_nall.allocate(1);
+    rv->m_nodeType=ntInnerNode;
+    rv->m_ch[3]=rv->m_ch[2]=rv->m_ch[1]=rv->m_ch[0]=0;
+    return rv;
+  }
+
+  DataNode* allocDataNode(nc_value_type&& a_value)
+  {
+    DataNode* rv=m_dall.allocate(1);
+    m_dall.construct(rv,std::forward<nc_value_type>(a_value));
+    return rv;
+  }
+
+  void deallocDataNode(DataNode* a_node)
+  {
+    m_dall.destroy(a_node);
+    m_dall.deallocate(a_node,1);
+  }
+
+  DataNodeList* allocListNode(DataNode* a_node)
+  {
+    DataNodeList* rv=m_lall.allocate(1);
+    m_lall.construct(rv,a_node);
+    return rv;
+  }
+  void deallocListNode(DataNodeList* a_node)
+  {
+    if(a_node->m_dataNode)
+    {
+      deallocDataNode(a_node->m_dataNode);
+    }
+    m_lall.deallocate(a_node,1);
+  }
+
+  void recClear(Node* a_ptr)
+  {
+    if(a_ptr->m_nodeType==ntInnerNode)
+    {
+      if(a_ptr->m_ch[0])recClear(a_ptr->m_ch[0]);
+      if(a_ptr->m_ch[1])recClear(a_ptr->m_ch[1]);
+      if(a_ptr->m_ch[2])recClear(a_ptr->m_ch[2]);
+      if(a_ptr->m_ch[3])recClear(a_ptr->m_ch[3]);
+      m_nall.deallocate(a_ptr,1);
+      return;
+    }else if(a_ptr->m_nodeType==ntListNode)
+    {
+      DataNodeList* ptr=a_ptr->asListPtr();
+      DataNodeList* next=ptr->m_listNext;
+      deallocListNode(ptr);
+      while(next)
+      {
+        ptr=next;
+        next=ptr->m_listNext;
+        deallocListNode(ptr);
+      }
+      return;
+    }else
+    {
+      deallocDataNode(a_ptr->asDataPtr());
+    }
+  }
+};
+
+template <class Key,class T,class Hash,class KeyEqual,class Allocator>
+const intptr_t htmap<Key,T,Hash,KeyEqual,Allocator>::ntInnerNode;
+template <class Key,class T,class Hash,class KeyEqual,class Allocator>
+const intptr_t htmap<Key,T,Hash,KeyEqual,Allocator>::ntListNode;
+
+}
+
+#endif
