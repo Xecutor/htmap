@@ -88,51 +88,43 @@ public:
     {
       return true;
     }
-    const_iterator it1=begin(),end1=end(),it2=a_other.begin(),end2=a_other.end();
-    for(;;++it1,++it2)
+    if(m_count!=a_other.m_count)
     {
-      if(it1==end1)
-      {
-        return it2==end2?true:false;
-      }
-      if(it2==end2)
-      {
-        return false;
-      }
+      return false;
+    }
+    const_iterator it1=begin(),end1=end(),it2=a_other.begin();
+    for(;it1==end1;++it1,++it2)
+    {
       if(!m_keyEq(it1->first,it2->first) || it1->second!=it2->second)
       {
         return false;
       }
     }
-    //return false;
+    return true;
   }
   template <class Hash2,class KeyEqual2,class NodesAllocator2>
   bool operator==(const htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>& a_other)const
   {
+    if(m_count!=a_other.m_count)
+    {
+      return false;
+    }
     const_iterator it1=begin(),end1=end();
-    typename htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>::const_iterator it2=a_other.begin(),end2=a_other.end();
+    typename htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>::const_iterator it2=a_other.begin();
     for(;;++it1,++it2)
     {
-      if(it1==end1)
-      {
-        return it2==end2?true:false;
-      }
-      if(it2==end2)
-      {
-        return false;
-      }
       if(!m_keyEq(it1->m_key,it2->m_key) || !m_keyEq(it1->m_value,it2->m_value))
       {
         return false;
       }
     }
-    //return false;
+    return true;
   }
 
   bool operator!=(const htmap& a_other)const
-       {
+  {
     return !operator==(a_other);
-       }
+  }
 
   template <class Hash2,class KeyEqual2,class NodesAllocator2>
   bool operator!=(const htmap<Key,T,Hash2,KeyEqual2,NodesAllocator2>& a_other)const
