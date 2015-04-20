@@ -15,7 +15,7 @@ Lookup works like this:
 
   * calculate 32-bit hash code.
   * Pick lower 2 bits as index and shift remaining code to the left by two bits.
-  * Now index array in inner node with that index.
+  * Get node in an array of inner node with that index.
   * Repeat until leaf node is encountered.
   * In case of normal leaf node just compare lookup key with the key in node.
   * In case of list leaf node, traverse the list and compare lookup key with the keys in list.
