@@ -2,6 +2,7 @@
 
 htmap is associative container based on 4-ary hash tree, interface compatible with unordered_map.
 Performance-wise it's somewhere between std::map and std::unordered_map for complex keys.
+Sometimes faster than std::unordered_map.
 Each insert/lookup costs at most one comparison of keys, unless collision is encountered.
 For integer keys std::map is somewhat faster because comparison of ints is basically one cpu instruction.
 
