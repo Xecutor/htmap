@@ -1,7 +1,7 @@
 #ifndef __KST_HTMAP_HPP__
 #define __KST_HTMAP_HPP__
 
-/* 
+/*
 Author: Konstantin Stupnik konstantin.stupnik@gmail.com
  */
 
@@ -699,7 +699,43 @@ public:
     a_other.m_end.m_prev=tmpEnd;
   }
 
+  void get_nodes_stats(size_t& a_inner_nodes,size_t& a_leaf_nodes,size_t& a_list_nodes,size_t& a_list_nodes_length)
+  {
+    if(!m_root)
+    {
+      return;
+    }
+    getNodesStats(m_root,a_inner_nodes,a_leaf_nodes,a_list_nodes,a_list_nodes_length);
+  }
+
 protected:
+
+  void getNodesStats(Node* a_node,size_t& a_inner_nodes,size_t& a_leaf_nodes,size_t& a_list_nodes,size_t& a_list_nodes_length)
+  {
+    if(a_node->m_nodeType==ntInnerNode)
+    {
+      ++a_inner_nodes;
+      if(a_node->m_ch[0])getNodesStats(a_node->m_ch[0],a_inner_nodes,a_leaf_nodes,a_list_nodes,a_list_nodes_length);
+      if(a_node->m_ch[1])getNodesStats(a_node->m_ch[1],a_inner_nodes,a_leaf_nodes,a_list_nodes,a_list_nodes_length);
+      if(a_node->m_ch[2])getNodesStats(a_node->m_ch[2],a_inner_nodes,a_leaf_nodes,a_list_nodes,a_list_nodes_length);
+      if(a_node->m_ch[3])getNodesStats(a_node->m_ch[3],a_inner_nodes,a_leaf_nodes,a_list_nodes,a_list_nodes_length);
+    }else if(a_node->m_nodeType==ntListNode)
+    {
+      ++a_list_nodes;
+      ++a_list_nodes_length;
+      DataNodeList* ptr=a_node->asListPtr();
+      DataNodeList* next=ptr->m_listNext;
+      while(next)
+      {
+        ++a_list_nodes_length;
+        ptr=next;
+        next=ptr->m_listNext;
+      }
+    }else
+    {
+      ++a_leaf_nodes;
+    }
+  }
 
   std::pair<iterator,bool> insert(nc_value_type&& a_value,bool overwrite)
   {
