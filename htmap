@@ -1,19 +1,19 @@
-#ifndef __KST_HTMAP__
-#define __KST_HTMAP__
+#ifndef __KST_HTMAP_HPP__
+#define __KST_HTMAP_HPP__
 
-/*
+/* 
 Author: Konstantin Stupnik konstantin.stupnik@gmail.com
  */
 
 #include <stdint.h>
-#include <memory.h>
 #include <string>
 #include <stdexcept>
-#include <map>
 #include <memory>
 #include <functional>
+#include <iterator>
 #include <utility>
 #include <new>
+#include <map>
 
 namespace kst{
 
@@ -28,7 +28,18 @@ protected:
   typedef std::pair<Key,T> nc_value_type;
 public:
 
+  typedef Key key_type;
+  typedef T mapped_type;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+  typedef Hash hasher;
+  typedef KeyEqual key_equal;
+  typedef Allocator allocator_type;
   typedef std::pair<const Key,T> value_type;
+  typedef value_type& reference;
+  typedef const value_type& const_reference;
+
+
 
   explicit htmap(const Hash& a_hashFunc=Hash()):
            m_root(0),m_count(0),m_hashFunc(a_hashFunc),m_begin((DataNode*)&m_end)
@@ -137,33 +148,37 @@ public:
 
   class iterator{
   public:
+    typedef std::bidirectional_iterator_tag iterator_category;
+    typedef value_type value_type;
+    typedef difference_type difference_type;
+    typedef value_type& reference;
     iterator():m_node(0){}
     iterator(const iterator& a_other):m_node(a_other.m_node){}
     iterator operator++(int)
-          {
+    {
       m_node=m_node->m_next;
       return *this;
-          }
+    }
 
     iterator operator++()
-          {
+    {
       DataNode* rv=m_node;
       m_node=m_node->m_next;
       return iterator(rv);
-          }
+    }
 
     iterator operator--(int)
-          {
+    {
       m_node=m_node->m_prev;
       return *this;
-          }
+    }
 
     iterator operator--()
-          {
+    {
       DataNode* rv=m_node;
       m_node=m_node->m_prev;
       return iterator(rv);
-          }
+    }
 
     iterator& operator=(const iterator& a_other)
     {
@@ -172,14 +187,14 @@ public:
     }
 
     bool operator==(const iterator& a_other)const
-          {
+    {
       return m_node==a_other.m_node;
-          }
+    }
 
     bool operator!=(const iterator& a_other)const
-          {
+    {
       return m_node!=a_other.m_node;
-          }
+    }
 
     value_type& operator*()
     {
@@ -206,6 +221,10 @@ public:
 
   class const_iterator{
   public:
+    typedef std::bidirectional_iterator_tag iterator_category;
+    typedef value_type value_type;
+    typedef difference_type difference_type;
+    typedef const value_type& reference;
     const_iterator():m_node(0){}
     const_iterator(const const_iterator& a_other):m_node(a_other.m_node){}
     const_iterator(const iterator& a_other):m_node(a_other.m_node){}
@@ -281,19 +300,29 @@ public:
     return const_iterator(m_begin);
   }
 
+  const_iterator cbegin()const
+  {
+    return const_iterator(m_begin);
+  }
+
   const_iterator end()const
   {
     return const_iterator((const DataNode*)&m_end);
   }
 
-  iterator insert(const Key& a_key,const T& a_value)
+  const_iterator cend()const
+  {
+    return const_iterator((const DataNode*)&m_end);
+  }
+
+  std::pair<iterator,bool> insert(const Key& a_key,const T& a_value)
   {
     return insert(nc_value_type(a_key,a_value),true);
   }
 
   T& operator[](const Key& a_key)
   {
-    iterator it=insert(nc_value_type(a_key,T()),false);
+    iterator it=insert(nc_value_type(a_key,T()),false).first;
     return it->second;
   }
 
@@ -307,15 +336,39 @@ public:
     return it->second;
   }
 
-  iterator insert(const value_type& a_keyval)
+  std::pair<iterator,bool> insert(const value_type& a_keyval)
   {
     return insert(a_keyval,true);
   }
 
   template <class VP>
-  iterator insert(VP&& a_keyval)
+  std::pair<iterator,bool> insert(VP&& a_keyval)
   {
     return insert(std::forward<nc_value_type>(a_keyval),true);
+  }
+
+  void insert(std::initializer_list<value_type> a_ilist)
+  {
+    for(auto& v:a_ilist)
+    {
+      insert(v);
+    }
+  }
+
+  template< class... Args >
+  std::pair<iterator,bool> emplace( Args&&... args )
+  {
+    return insert(nc_value_type(std::forward<Args>(args)...),true);
+  }
+
+  hasher hash_function()const
+  {
+    return m_hashFunc;
+  }
+
+  key_equal key_eq()const
+  {
+    return m_keyEq;
   }
 
   /*
@@ -403,6 +456,26 @@ public:
       return end();
     }
     return end();
+  }
+
+  T& at(const Key& a_key)
+  {
+    iterator it=find(a_key);
+    if(it==end())
+    {
+      throw std::out_of_range("htmap::at");
+    }
+    return it->second;
+  }
+
+  const T& at(const Key& a_key)const
+  {
+    iterator it=find(a_key);
+    if(it==end())
+    {
+      throw std::out_of_range("htmap::at");
+    }
+    return it->second;
   }
 
 
@@ -628,7 +701,7 @@ public:
 
 protected:
 
-  iterator insert(nc_value_type&& a_value,bool overwrite)
+  std::pair<iterator,bool> insert(nc_value_type&& a_value,bool overwrite)
   {
     uint32_t hashCode=m_hashFunc(a_value.first);
     size_t bitIndex=0;
@@ -667,7 +740,7 @@ protected:
           }
           m_end.m_prev=&n;
           m_count++;
-          return iterator(&n);
+          return std::make_pair(iterator(&n),true);
         }
       }
 
@@ -682,7 +755,7 @@ protected:
             {
               lst->m_dataNode->m_value.second=std::move(a_value.second);
             }
-            return iterator(lst->m_dataNode);
+            return std::make_pair(iterator(lst->m_dataNode),false);
           }
           lst=lst->m_listNext;
         }
@@ -702,7 +775,7 @@ protected:
         }
         m_end.m_prev=&n;
         m_count++;
-        return iterator(&n);
+        return std::make_pair(iterator(&n),true);
       }else
       {
         DataNode* dptr=ptr->asDataPtr();
@@ -712,7 +785,7 @@ protected:
           {
             dptr->m_value.second=a_value.second;
           }
-          return iterator(dptr);
+          return std::make_pair(iterator(dptr),false);
         }
         if(bitIndex!=30)
         {
@@ -737,7 +810,7 @@ protected:
               }
               m_end.m_prev=dptr;
               m_count++;
-              return iterator(dptr);
+              return std::make_pair(iterator(dptr),true);
             }
             parent=newNode;
             parentIdx=idx;
@@ -762,7 +835,7 @@ protected:
         }
         m_end.m_prev=&n;
         m_count++;
-        return iterator(&n);
+        return std::make_pair(iterator(&n),true);
       }
     }
     //return end();
